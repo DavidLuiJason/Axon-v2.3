@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+/* Native silky-smooth scrolling and gesture momentum across all devices */
+html, body {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: none;
+}
+
+/* Enable hardware-accelerated native inertia scrolling across all scroll containers */
+.overflow-y-auto {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  touch-action: pan-y;
+}
+
+.overflow-x-auto {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x;
+}
+
+/* Prevent unwanted mobile tap delays and flashes */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
