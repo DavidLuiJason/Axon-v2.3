@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, HardDrive, ShieldCheck, Check, Shield } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { formatBytes } from '../../lib/storageManifest';
 import { ModalOverlayContainer } from '../ModalOverlayContainer';
 
 interface StorageOnboardingModalProps {
@@ -12,7 +13,7 @@ interface StorageOnboardingModalProps {
 const ONBOARDING_PRESETS = [
   { label: '5 GB', subtitle: 'Minimal quota for constrained devices', bytes: 5 * 1024 * 1024 * 1024 },
   { label: '10 GB', subtitle: 'Compact allocation for basic offline use', bytes: 10 * 1024 * 1024 * 1024 },
-  { label: '15 GB (Recommended)', subtitle: 'Standard quota for models & reference packs', bytes: 15 * 1024 * 1024 * 1024, isDefault: true },
+  { label: '15 GB (Recommended)', subtitle: 'Standard quota for models & reference packs', bytes: 15 * 1024 * 1024 * 1024 },
   { label: '25 GB', subtitle: 'Power user budget for deep archives & datasets', bytes: 25 * 1024 * 1024 * 1024 },
 ];
 
@@ -21,8 +22,21 @@ export const StorageOnboardingModal: React.FC<StorageOnboardingModalProps> = ({
   onClose,
   canDismiss = true,
 }) => {
-  const { setStorageBudgetBytes, setHasCompletedStorageOnboarding } = useApp();
+  const { storageBudget, setStorageBudgetBytes, setHasCompletedStorageOnboarding } = useApp();
   const [customGb, setCustomGb] = useState('');
+
+  useEffect(() => {
+    if (isOpen) {
+      const isPreset = ONBOARDING_PRESETS.some((p) => p.bytes === storageBudget.budgetBytes);
+      if (!isPreset && storageBudget.budgetBytes > 0) {
+        setCustomGb((storageBudget.budgetBytes / (1024 * 1024 * 1024)).toFixed(1).replace(/\.0$/, ''));
+      } else if (storageBudget.customLimitBytes && !isPreset) {
+        setCustomGb((storageBudget.customLimitBytes / (1024 * 1024 * 1024)).toFixed(1).replace(/\.0$/, ''));
+      } else {
+        setCustomGb('');
+      }
+    }
+  }, [isOpen, storageBudget.budgetBytes, storageBudget.customLimitBytes]);
 
   if (!isOpen) return null;
 
@@ -32,18 +46,27 @@ export const StorageOnboardingModal: React.FC<StorageOnboardingModalProps> = ({
     onClose();
   };
 
-  const handleApplyCustom = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleApplyCustom = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     const val = parseFloat(customGb);
     if (!isNaN(val) && val > 0) {
       handleSelectBudget(Math.round(val * 1024 * 1024 * 1024));
     }
   };
 
+  const handleDismiss = () => {
+    const val = parseFloat(customGb);
+    if (!isNaN(val) && val > 0) {
+      handleSelectBudget(Math.round(val * 1024 * 1024 * 1024));
+    } else {
+      onClose();
+    }
+  };
+
   return (
     <ModalOverlayContainer
       isOpen={isOpen}
-      onClose={canDismiss ? onClose : () => {}}
+      onClose={canDismiss ? handleDismiss : () => {}}
       id="storage-onboarding-modal"
       maxWidth="md"
       ariaLabel="Storage Manifest Onboarding"
@@ -51,8 +74,8 @@ export const StorageOnboardingModal: React.FC<StorageOnboardingModalProps> = ({
     >
       <div className="flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-white text-black flex items-center justify-center font-bold text-xs">
-            15G
+          <div className="w-9 h-9 rounded-xl bg-white text-black flex items-center justify-center font-bold text-xs shadow-sm">
+            {formatBytes(storageBudget.budgetBytes, 0)}
           </div>
           <div>
             <h2 className="text-sm font-bold text-white">Storage Manifest &amp; Device Budget</h2>
@@ -62,7 +85,7 @@ export const StorageOnboardingModal: React.FC<StorageOnboardingModalProps> = ({
         {canDismiss && (
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleDismiss}
             className="p-1 rounded-lg hover:bg-neutral-800 text-neutral-400 hover:text-white"
           >
             <X className="w-4 h-4" />
@@ -85,26 +108,29 @@ export const StorageOnboardingModal: React.FC<StorageOnboardingModalProps> = ({
       <div className="space-y-2 pt-1">
         <label className="text-xs font-semibold text-neutral-300">Choose Device Budget</label>
         <div className="grid grid-cols-1 gap-2">
-          {ONBOARDING_PRESETS.map((preset) => (
-            <button
-              key={preset.label}
-              type="button"
-              onClick={() => handleSelectBudget(preset.bytes)}
-              className={`w-full p-3 rounded-xl text-left transition-colors flex items-center justify-between border ${
-                preset.isDefault
-                  ? 'bg-white text-black border-white hover:bg-neutral-200'
-                  : 'bg-neutral-900 hover:bg-neutral-850 text-white border-neutral-800'
-              }`}
-            >
-              <div>
-                <div className="text-xs font-semibold">{preset.label}</div>
-                <div className={`text-[11px] ${preset.isDefault ? 'text-neutral-700' : 'text-neutral-400'}`}>
-                  {preset.subtitle}
+          {ONBOARDING_PRESETS.map((preset) => {
+            const isSelected = storageBudget.budgetBytes === preset.bytes;
+            return (
+              <button
+                key={preset.label}
+                type="button"
+                onClick={() => handleSelectBudget(preset.bytes)}
+                className={`w-full p-3 rounded-xl text-left transition-colors flex items-center justify-between border ${
+                  isSelected
+                    ? 'bg-white text-black border-white hover:bg-neutral-200'
+                    : 'bg-neutral-900 hover:bg-neutral-850 text-white border-neutral-800'
+                }`}
+              >
+                <div>
+                  <div className="text-xs font-semibold">{preset.label}</div>
+                  <div className={`text-[11px] ${isSelected ? 'text-neutral-700' : 'text-neutral-400'}`}>
+                    {preset.subtitle}
+                  </div>
                 </div>
-              </div>
-              {preset.isDefault && <Check className="w-4 h-4 text-black shrink-0" />}
-            </button>
-          ))}
+                {isSelected && <Check className="w-4 h-4 text-black shrink-0" />}
+              </button>
+            );
+          })}
         </div>
       </div>
 

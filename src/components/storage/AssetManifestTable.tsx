@@ -1,8 +1,20 @@
-import React from 'react';
-import { Trash2, RefreshCw, Wand2, Shield, AlertCircle, Power, PowerOff, Lock, Download } from 'lucide-react';
+import React, { useState } from 'react';
+import {
+  Trash2,
+  RefreshCw,
+  Wand2,
+  Shield,
+  AlertCircle,
+  Power,
+  PowerOff,
+  Lock,
+  Download,
+  Eye,
+} from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { AssetCategory } from '../../types';
+import { AssetCategory, AssetManifestItem } from '../../types';
 import { formatBytes } from '../../lib/storageManifest';
+import { AssetFileViewerModal } from './AssetFileViewerModal';
 
 interface AssetManifestTableProps {
   categoryFilter: AssetCategory | 'all';
@@ -21,7 +33,30 @@ export const AssetManifestTable: React.FC<AssetManifestTableProps> = ({
     revertOrEnhanceAssetItem,
     deleteAssetFromManifest,
     toggleAssetEnabled,
+    messages,
   } = useApp();
+
+  const [previewItem, setPreviewItem] = useState<AssetManifestItem | null>(null);
+
+  const getAssetDataUrl = (item: AssetManifestItem | null): string | undefined => {
+    if (!item) return undefined;
+    if (item.metadata?.dataUrl) return item.metadata.dataUrl;
+    if (item.metadata?.previewUrl) return item.metadata.previewUrl;
+    if (messages && messages.length > 0) {
+      for (const msg of messages) {
+        const atts = msg.attachments || (msg.attachment ? [msg.attachment] : []);
+        const found = atts.find(
+          (a) =>
+            a &&
+            (a.name === item.name ||
+              item.storageLocation.endsWith(a.name) ||
+              (a.name && item.name.includes(a.name)))
+        );
+        if (found?.dataUrl) return found.dataUrl;
+      }
+    }
+    return undefined;
+  };
 
   const filteredItems = React.useMemo(() => {
     const seenIds = new Set<string>();
@@ -74,15 +109,24 @@ export const AssetManifestTable: React.FC<AssetManifestTableProps> = ({
           {filteredItems.map((item, idx) => (
             <div
               key={item.id ? `${item.id}-${idx}` : `asset-${idx}`}
-              className={`p-4 rounded-xl border transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 text-xs ${
+              onClick={() => setPreviewItem(item)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setPreviewItem(item);
+                }
+              }}
+              className={`p-4 rounded-xl border transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 text-xs cursor-pointer ${
                 item.isEnabled === false
-                  ? 'bg-neutral-950/40 border-neutral-900 opacity-75'
-                  : 'bg-neutral-950/60 border-neutral-850 hover:border-neutral-800'
+                  ? 'bg-neutral-950/40 border-neutral-900 opacity-75 hover:border-neutral-800'
+                  : 'bg-neutral-950/60 border-neutral-850 hover:border-neutral-750 hover:bg-neutral-900/30'
               }`}
             >
               <div className="space-y-1.5">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-semibold text-white">{item.name}</span>
+                  <span className="font-semibold text-white hover:underline">{item.name}</span>
                   {item.isCore ? (
                     <span className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-300 border border-blue-500/20 font-medium">
                       <Shield className="w-2.5 h-2.5" /> Core (Non-deletable)
@@ -131,10 +175,27 @@ export const AssetManifestTable: React.FC<AssetManifestTableProps> = ({
 
               {/* Action Controls */}
               <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                {/* Dedicated Tap to View / Inspect Button */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPreviewItem(item);
+                  }}
+                  title="Open / Preview Asset"
+                  className="px-2.5 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-xs text-neutral-300 hover:text-white border border-neutral-800 transition-colors flex items-center gap-1.5"
+                >
+                  <Eye className="w-3.5 h-3.5 text-neutral-400" />
+                  <span>View</span>
+                </button>
+
                 {/* Toggle On/Off Switch (Works for Core and Removable alike) */}
                 <button
                   type="button"
-                  onClick={() => toggleAssetEnabled(item.id)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleAssetEnabled(item.id);
+                  }}
                   title={item.isEnabled === false ? 'Enable component' : 'Toggle component off'}
                   className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs border transition-colors ${
                     item.isEnabled === false
@@ -157,12 +218,13 @@ export const AssetManifestTable: React.FC<AssetManifestTableProps> = ({
 
                 <button
                   type="button"
-                  onClick={() =>
+                  onClick={(e) => {
+                    e.stopPropagation();
                     setAssetSaveMode(
                       item.id,
                       item.saveMode === 'archive' ? 'space_saver' : 'archive'
-                    )
-                  }
+                    );
+                  }}
                   title="Toggle Save Mode"
                   className="px-2.5 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-xs text-neutral-300 hover:text-white border border-neutral-800 transition-colors"
                 >
@@ -171,7 +233,10 @@ export const AssetManifestTable: React.FC<AssetManifestTableProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => revertOrEnhanceAssetItem(item.id)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    revertOrEnhanceAssetItem(item.id);
+                  }}
                   title="Enhance approximation or restore lossless"
                   className="p-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-neutral-300 hover:text-white border border-neutral-800 transition-colors"
                 >
@@ -188,7 +253,10 @@ export const AssetManifestTable: React.FC<AssetManifestTableProps> = ({
                 ) : (
                   <button
                     type="button"
-                    onClick={() => deleteAssetFromManifest(item.id)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteAssetFromManifest(item.id);
+                    }}
                     title="Delete / Uninstall Asset"
                     className="p-1.5 rounded-lg bg-neutral-900 hover:bg-rose-950 text-neutral-400 hover:text-rose-300 border border-neutral-800 transition-colors"
                   >
@@ -200,6 +268,14 @@ export const AssetManifestTable: React.FC<AssetManifestTableProps> = ({
           ))}
         </div>
       )}
+
+      {/* Tap-to-View Modal matching file type */}
+      <AssetFileViewerModal
+        isOpen={Boolean(previewItem)}
+        item={previewItem}
+        onClose={() => setPreviewItem(null)}
+        dataUrl={getAssetDataUrl(previewItem)}
+      />
     </div>
   );
 };

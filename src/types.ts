@@ -412,6 +412,7 @@ export interface AssetManifestItem {
   isEnabled?: boolean;
   isCore?: boolean;
   description?: string;
+  metadata?: Record<string, any>;
   createdAt: string;
   updatedAt: string;
   lastAccessedAt?: string;

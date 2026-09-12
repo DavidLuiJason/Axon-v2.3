@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, HardDrive, Check } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { formatBytes } from '../../lib/storageManifest';
@@ -21,6 +21,23 @@ export const BudgetSettingModal: React.FC<BudgetSettingModalProps> = ({ isOpen, 
   const [threshold, setThreshold] = useState(storageBudget.warningThresholdPercent || 85);
   const [customGb, setCustomGb] = useState('');
 
+  // Keep threshold and custom input synchronized with active state when opened
+  useEffect(() => {
+    if (isOpen) {
+      setThreshold(storageBudget.warningThresholdPercent || 85);
+      const isPreset = BUDGET_PRESETS.some((p) => p.bytes === storageBudget.budgetBytes);
+      if (!isPreset && storageBudget.budgetBytes > 0) {
+        const gb = (storageBudget.budgetBytes / (1024 * 1024 * 1024)).toFixed(1).replace(/\.0$/, '');
+        setCustomGb(gb);
+      } else if (storageBudget.customLimitBytes && !isPreset) {
+        const gb = (storageBudget.customLimitBytes / (1024 * 1024 * 1024)).toFixed(1).replace(/\.0$/, '');
+        setCustomGb(gb);
+      } else {
+        setCustomGb('');
+      }
+    }
+  }, [isOpen, storageBudget.budgetBytes, storageBudget.customLimitBytes, storageBudget.warningThresholdPercent]);
+
   if (!isOpen) return null;
 
   const currentUsagePercent =
@@ -28,19 +45,33 @@ export const BudgetSettingModal: React.FC<BudgetSettingModalProps> = ({ isOpen, 
       ? Math.min(100, (storageBreakdown.totalStoredBytes / storageBudget.budgetBytes) * 100)
       : 0;
 
-  const handleApplyCustom = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleApplyCustom = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     const val = parseFloat(customGb);
     if (!isNaN(val) && val > 0) {
-      setStorageBudgetBytes(Math.round(val * 1024 * 1024 * 1024));
-      setCustomGb('');
+      const bytes = Math.round(val * 1024 * 1024 * 1024);
+      setStorageBudgetBytes(bytes);
     }
   };
+
+  const handleClose = () => {
+    // If user entered a custom value but didn't explicitly hit Apply, save it before closing
+    const val = parseFloat(customGb);
+    if (!isNaN(val) && val > 0) {
+      const targetBytes = Math.round(val * 1024 * 1024 * 1024);
+      if (targetBytes !== storageBudget.budgetBytes) {
+        setStorageBudgetBytes(targetBytes);
+      }
+    }
+    onClose();
+  };
+
+  const isCustomActive = !BUDGET_PRESETS.some((p) => p.bytes === storageBudget.budgetBytes);
 
   return (
     <ModalOverlayContainer
       isOpen={isOpen}
-      onClose={onClose}
+      onClose={handleClose}
       id="budget-setting-modal"
       maxWidth="md"
       ariaLabel="Storage Budget Configuration"
@@ -53,7 +84,7 @@ export const BudgetSettingModal: React.FC<BudgetSettingModalProps> = ({ isOpen, 
         </div>
         <button
           type="button"
-          onClick={onClose}
+          onClick={handleClose}
           className="p-1 rounded-lg hover:bg-neutral-800 text-neutral-400 hover:text-white"
         >
           <X className="w-4 h-4" />
@@ -86,7 +117,14 @@ export const BudgetSettingModal: React.FC<BudgetSettingModalProps> = ({ isOpen, 
       </div>
 
       <div className="space-y-3">
-        <label className="text-xs font-semibold text-neutral-300">Device Quota Presets</label>
+        <div className="flex items-center justify-between">
+          <label className="text-xs font-semibold text-neutral-300">Device Quota Presets</label>
+          {isCustomActive && (
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">
+              Custom Active: {formatBytes(storageBudget.budgetBytes, 0)}
+            </span>
+          )}
+        </div>
         <div className="grid grid-cols-2 gap-2">
           {BUDGET_PRESETS.map((preset) => {
             const isActive = storageBudget.budgetBytes === preset.bytes;
@@ -94,7 +132,10 @@ export const BudgetSettingModal: React.FC<BudgetSettingModalProps> = ({ isOpen, 
               <button
                 key={preset.label}
                 type="button"
-                onClick={() => setStorageBudgetBytes(preset.bytes)}
+                onClick={() => {
+                  setStorageBudgetBytes(preset.bytes);
+                  setCustomGb('');
+                }}
                 className={`p-2.5 rounded-xl border text-xs font-semibold text-center transition-all ${
                   isActive
                     ? 'bg-white text-black border-white'
@@ -163,7 +204,7 @@ export const BudgetSettingModal: React.FC<BudgetSettingModalProps> = ({ isOpen, 
       <div className="pt-2 flex justify-end shrink-0">
         <button
           type="button"
-          onClick={onClose}
+          onClick={handleClose}
           className="px-4 py-2 rounded-xl bg-white text-black font-semibold text-xs hover:bg-neutral-200 transition-colors"
         >
           Done
