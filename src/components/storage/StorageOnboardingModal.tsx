@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { X, HardDrive, ShieldCheck, Check, Shield } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { formatBytes } from '../../lib/storageManifest';
+import { formatBytes, getDeviceAwarePresets } from '../../lib/storageManifest';
 import { ModalOverlayContainer } from '../ModalOverlayContainer';
 
 interface StorageOnboardingModalProps {
@@ -10,24 +10,19 @@ interface StorageOnboardingModalProps {
   canDismiss?: boolean;
 }
 
-const ONBOARDING_PRESETS = [
-  { label: '5 GB', subtitle: 'Minimal quota for constrained devices', bytes: 5 * 1024 * 1024 * 1024 },
-  { label: '10 GB', subtitle: 'Compact allocation for basic offline use', bytes: 10 * 1024 * 1024 * 1024 },
-  { label: '15 GB (Recommended)', subtitle: 'Standard quota for models & reference packs', bytes: 15 * 1024 * 1024 * 1024 },
-  { label: '25 GB', subtitle: 'Power user budget for deep archives & datasets', bytes: 25 * 1024 * 1024 * 1024 },
-];
-
 export const StorageOnboardingModal: React.FC<StorageOnboardingModalProps> = ({
   isOpen,
   onClose,
   canDismiss = true,
 }) => {
-  const { storageBudget, setStorageBudgetBytes, setHasCompletedStorageOnboarding } = useApp();
+  const { storageBudget, setStorageBudgetBytes, setHasCompletedStorageOnboarding, deviceStorageEstimate } = useApp();
   const [customGb, setCustomGb] = useState('');
+
+  const presets = useMemo(() => getDeviceAwarePresets(deviceStorageEstimate), [deviceStorageEstimate]);
 
   useEffect(() => {
     if (isOpen) {
-      const isPreset = ONBOARDING_PRESETS.some((p) => p.bytes === storageBudget.budgetBytes);
+      const isPreset = presets.some((p) => p.bytes === storageBudget.budgetBytes);
       if (!isPreset && storageBudget.budgetBytes > 0) {
         setCustomGb((storageBudget.budgetBytes / (1024 * 1024 * 1024)).toFixed(1).replace(/\.0$/, ''));
       } else if (storageBudget.customLimitBytes && !isPreset) {
@@ -36,7 +31,7 @@ export const StorageOnboardingModal: React.FC<StorageOnboardingModalProps> = ({
         setCustomGb('');
       }
     }
-  }, [isOpen, storageBudget.budgetBytes, storageBudget.customLimitBytes]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -106,9 +101,12 @@ export const StorageOnboardingModal: React.FC<StorageOnboardingModalProps> = ({
       </div>
 
       <div className="space-y-2 pt-1">
-        <label className="text-xs font-semibold text-neutral-300">Choose Device Budget</label>
+        <div className="flex items-center justify-between">
+          <label className="text-xs font-semibold text-neutral-300">Choose Device Budget</label>
+          <span className="text-[10px] text-neutral-400">{deviceStorageEstimate.calculationExplanation}</span>
+        </div>
         <div className="grid grid-cols-1 gap-2">
-          {ONBOARDING_PRESETS.map((preset) => {
+          {presets.map((preset) => {
             const isSelected = storageBudget.budgetBytes === preset.bytes;
             return (
               <button

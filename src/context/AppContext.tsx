@@ -54,6 +54,9 @@ import {
   simulateTrimPlan,
   formatBytes,
   checkStorageBudget,
+  DeviceStorageEstimate,
+  getDeviceStorageRecommendation,
+  calculateDeviceAwareBudget,
 } from '../lib/storageManifest';
 import { exportChatToPdf, exportChatToImagePdf } from '../lib/pdfExport';
 import {
@@ -254,6 +257,7 @@ interface AppContextType {
   assetManifest: AssetManifestItem[];
   storageBudget: StorageBudgetConfig;
   storageBreakdown: StorageBreakdown;
+  deviceStorageEstimate: DeviceStorageEstimate;
   registerAssetInManifest: (
     item: Omit<AssetManifestItem, 'id' | 'createdAt' | 'updatedAt' | 'lastAccessedAt'> & { id?: string }
   ) => AssetManifestItem;
@@ -1249,6 +1253,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch (e) {}
     return DEFAULT_STORAGE_BUDGET_CONFIG;
   });
+
+  const [deviceStorageEstimate, setDeviceStorageEstimate] = useState<DeviceStorageEstimate>(() =>
+    calculateDeviceAwareBudget()
+  );
+
+  useEffect(() => {
+    let isMounted = true;
+    getDeviceStorageRecommendation().then((estimate) => {
+      if (!isMounted) return;
+      setDeviceStorageEstimate(estimate);
+      // If user hasn't explicitly set a custom budget or completed onboarding yet,
+      // adopt the device-aware recommended budget:
+      setStorageBudget((prev) => {
+        if (!prev.hasCompletedOnboarding && prev.customLimitBytes === undefined) {
+          return {
+            ...prev,
+            budgetBytes: estimate.recommendedBudgetBytes,
+          };
+        }
+        return prev;
+      });
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const storageBreakdown = useMemo(() => {
     return calculateStorageBreakdown(assetManifest);
@@ -3572,6 +3602,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         assetManifest,
         storageBudget,
         storageBreakdown,
+        deviceStorageEstimate,
         registerAssetInManifest,
         updateAssetManifestItem,
         deleteAssetFromManifest,

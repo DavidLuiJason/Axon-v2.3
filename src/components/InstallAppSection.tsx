@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Smartphone,
   Download,
@@ -14,7 +14,7 @@ import {
   HardDrive,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { formatBytes } from '../lib/storageManifest';
+import { formatBytes, getDeviceAwarePresets } from '../lib/storageManifest';
 
 interface BeforeInstallPromptEvent extends Event {
   readonly platforms: string[];
@@ -36,8 +36,19 @@ interface InstallAppSectionProps {
 }
 
 export const InstallAppSection: React.FC<InstallAppSectionProps> = ({ showToast }) => {
-  const { storageBudget, setStorageBudgetBytes } = useApp();
+  const { storageBudget, setStorageBudgetBytes, deviceStorageEstimate } = useApp();
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
+  const [customGb, setCustomGb] = useState<string>('');
+  const presets = useMemo(() => getDeviceAwarePresets(deviceStorageEstimate), [deviceStorageEstimate]);
+  const isPresetActive = presets.some((p) => p.bytes === storageBudget.budgetBytes);
+
+  useEffect(() => {
+    const isPreset = presets.some((p) => p.bytes === storageBudget.budgetBytes);
+    if (!isPreset && storageBudget.budgetBytes > 0) {
+      const gb = (storageBudget.budgetBytes / (1024 * 1024 * 1024)).toFixed(1).replace(/\.0$/, '');
+      setCustomGb(gb);
+    }
+  }, []);
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(
     typeof window !== 'undefined' ? window.__axon_deferred_prompt || null : null
   );
@@ -375,15 +386,12 @@ export const InstallAppSection: React.FC<InstallAppSectionProps> = ({ showToast 
               </span>
             </div>
             <p className="text-[11px] text-neutral-400">
-              Allocated quota for offline neural models, reference packs, and local files (editable anytime in Storage Diagnostics).
+              Allocated quota for offline neural models, reference packs, and local files ({deviceStorageEstimate.calculationExplanation}).
             </p>
-            <div className="flex flex-wrap gap-2 pt-0.5">
-              {[
-                { label: '5 GB', bytes: 5 * 1024 * 1024 * 1024 },
-                { label: '10 GB', bytes: 10 * 1024 * 1024 * 1024 },
-                { label: '15 GB (Recommended)', bytes: 15 * 1024 * 1024 * 1024 },
-                { label: '25 GB', bytes: 25 * 1024 * 1024 * 1024 },
-              ].map((opt) => (
+
+            {/* Presets and Custom Input alongside */}
+            <div className="flex flex-wrap items-center gap-2 pt-0.5">
+              {presets.map((opt) => (
                 <button
                   key={opt.label}
                   type="button"
@@ -391,6 +399,7 @@ export const InstallAppSection: React.FC<InstallAppSectionProps> = ({ showToast 
                     setStorageBudgetBytes(opt.bytes);
                     if (showToast) showToast(`Storage budget set to ${opt.label}`);
                   }}
+                  title={opt.subtitle}
                   className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
                     storageBudget.budgetBytes === opt.bytes
                       ? 'bg-white text-black border-white font-semibold'
@@ -400,6 +409,59 @@ export const InstallAppSection: React.FC<InstallAppSectionProps> = ({ showToast 
                   {opt.label}
                 </button>
               ))}
+
+              {/* Free-text / Numeric Custom Budget Input alongside presets */}
+              <div className="flex items-center gap-1">
+                <div className="relative">
+                  <input
+                    type="number"
+                    min="0.5"
+                    max="2048"
+                    step="0.5"
+                    placeholder="Custom"
+                    value={customGb}
+                    onChange={(e) => setCustomGb(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const val = parseFloat(customGb);
+                        if (!isNaN(val) && val > 0) {
+                          const bytes = Math.round(val * 1024 * 1024 * 1024);
+                          setStorageBudgetBytes(bytes);
+                          if (showToast) showToast(`Custom storage budget set to ${val} GB`);
+                        }
+                      }
+                    }}
+                    className={`w-20 px-2.5 py-1 rounded-lg text-xs bg-neutral-900 border text-white placeholder:text-neutral-500 focus:outline-none focus:border-white pr-7 ${
+                      !isPresetActive ? 'border-white font-semibold' : 'border-neutral-750'
+                    }`}
+                  />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-neutral-400 font-mono">
+                    GB
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  disabled={!customGb || isNaN(parseFloat(customGb)) || parseFloat(customGb) <= 0}
+                  onClick={() => {
+                    const val = parseFloat(customGb);
+                    if (!isNaN(val) && val > 0) {
+                      const bytes = Math.round(val * 1024 * 1024 * 1024);
+                      setStorageBudgetBytes(bytes);
+                      if (showToast) showToast(`Custom storage budget set to ${val} GB`);
+                    }
+                  }}
+                  className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-neutral-800 hover:bg-neutral-750 disabled:opacity-40 text-white border border-neutral-700 transition-colors"
+                >
+                  Set
+                </button>
+              </div>
+
+              {!isPresetActive && (
+                <span className="text-[11px] font-mono text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-800/50">
+                  Custom Active: {formatBytes(storageBudget.budgetBytes, 0)}
+                </span>
+              )}
             </div>
           </div>
         </div>

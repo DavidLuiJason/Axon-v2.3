@@ -15,6 +15,163 @@ export interface StorageBreakdown {
   overallCompressionRatio: number;
 }
 
+export interface DeviceStorageEstimate {
+  quotaBytes?: number;
+  usageBytes?: number;
+  freeBytes?: number;
+  recommendedBudgetBytes: number;
+  recommendedGb: number;
+  recommendedLabel: string;
+  calculationExplanation: string;
+  source: 'storage_estimate' | 'device_memory' | 'default';
+}
+
+export interface BudgetPresetOption {
+  label: string;
+  bytes: number;
+  isRecommended?: boolean;
+  subtitle?: string;
+}
+
+/**
+ * Calculates a device-aware budget recommendation based on actual storage / quota.
+ * Floor: 4 GB, Ceiling: 30 GB, ~25% of available free space.
+ */
+export function calculateDeviceAwareBudget(
+  quotaBytes?: number,
+  usageBytes?: number,
+  deviceMemoryGb?: number
+): DeviceStorageEstimate {
+  if (typeof quotaBytes === 'number' && quotaBytes > 0) {
+    const freeBytes = Math.max(0, quotaBytes - (usageBytes || 0));
+    // 25% of free space as sensible quota allocation for offline models & cached assets
+    const calculatedBytes = freeBytes * 0.25;
+    const floorBytes = 4 * 1024 * 1024 * 1024; // 4 GB floor
+    const ceilingBytes = 30 * 1024 * 1024 * 1024; // 30 GB ceiling
+    const clampedBytes = Math.max(floorBytes, Math.min(ceilingBytes, calculatedBytes));
+    const recommendedGb = Math.max(1, Math.round(clampedBytes / (1024 * 1024 * 1024)));
+    const recommendedBudgetBytes = recommendedGb * 1024 * 1024 * 1024;
+
+    return {
+      quotaBytes,
+      usageBytes: usageBytes || 0,
+      freeBytes,
+      recommendedBudgetBytes,
+      recommendedGb,
+      recommendedLabel: `${recommendedGb} GB (Recommended)`,
+      calculationExplanation: `Based on ~25% of ${formatBytes(freeBytes)} free device storage (${formatBytes(quotaBytes)} quota)`,
+      source: 'storage_estimate',
+    };
+  }
+
+  // Fallback if browser storage estimate is unavailable: use RAM heuristic
+  if (typeof deviceMemoryGb === 'number' && deviceMemoryGb > 0) {
+    let gb = 10;
+    if (deviceMemoryGb <= 2) gb = 4;
+    else if (deviceMemoryGb <= 4) gb = 8;
+    else if (deviceMemoryGb <= 8) gb = 12;
+    else gb = 16;
+
+    return {
+      recommendedBudgetBytes: gb * 1024 * 1024 * 1024,
+      recommendedGb: gb,
+      recommendedLabel: `${gb} GB (Recommended)`,
+      calculationExplanation: `Calculated for device with ${deviceMemoryGb} GB RAM`,
+      source: 'device_memory',
+    };
+  }
+
+  // Baseline standard fallback
+  return {
+    recommendedBudgetBytes: 10 * 1024 * 1024 * 1024,
+    recommendedGb: 10,
+    recommendedLabel: '10 GB (Recommended)',
+    calculationExplanation: 'Standard balanced baseline allocation',
+    source: 'default',
+  };
+}
+
+export async function getDeviceStorageRecommendation(): Promise<DeviceStorageEstimate> {
+  if (typeof navigator !== 'undefined') {
+    try {
+      if (navigator.storage && typeof navigator.storage.estimate === 'function') {
+        const est = await navigator.storage.estimate();
+        if (est && typeof est.quota === 'number' && est.quota > 0) {
+          return calculateDeviceAwareBudget(est.quota, est.usage || 0, (navigator as any).deviceMemory);
+        }
+      }
+    } catch (err) {
+      console.warn('Storage estimate API error:', err);
+    }
+
+    const deviceMem = (navigator as any).deviceMemory;
+    if (typeof deviceMem === 'number' && deviceMem > 0) {
+      return calculateDeviceAwareBudget(undefined, undefined, deviceMem);
+    }
+  }
+
+  return calculateDeviceAwareBudget();
+}
+
+/**
+ * Returns a sorted list of budget preset options adapted to the device's recommendation.
+ */
+export function getDeviceAwarePresets(recommendation: DeviceStorageEstimate): BudgetPresetOption[] {
+  const recGb = recommendation.recommendedGb;
+  const recBytes = recommendation.recommendedBudgetBytes;
+
+  const map = new Map<number, BudgetPresetOption>();
+
+  // Baseline low
+  if (recGb > 6) {
+    map.set(5 * 1024 * 1024 * 1024, {
+      label: '5 GB',
+      bytes: 5 * 1024 * 1024 * 1024,
+      subtitle: 'Minimal allocation for constrained devices',
+    });
+  } else {
+    map.set(4 * 1024 * 1024 * 1024, {
+      label: '4 GB',
+      bytes: 4 * 1024 * 1024 * 1024,
+      subtitle: 'Minimal budget for lightweight offline models',
+    });
+  }
+
+  // Intermediate tier if applicable
+  if (recGb !== 10 && recGb > 7) {
+    map.set(10 * 1024 * 1024 * 1024, {
+      label: '10 GB',
+      bytes: 10 * 1024 * 1024 * 1024,
+      subtitle: 'Compact quota for general offline use',
+    });
+  }
+
+  // The Device-Aware Recommended Preset
+  map.set(recBytes, {
+    label: `${recGb} GB (Recommended)`,
+    bytes: recBytes,
+    isRecommended: true,
+    subtitle: recommendation.calculationExplanation,
+  });
+
+  // Power User
+  if (recGb < 23) {
+    map.set(25 * 1024 * 1024 * 1024, {
+      label: '25 GB (Power User)',
+      bytes: 25 * 1024 * 1024 * 1024,
+      subtitle: 'Deep archives, multiple models & knowledge packs',
+    });
+  } else {
+    map.set(35 * 1024 * 1024 * 1024, {
+      label: '35 GB (Power User)',
+      bytes: 35 * 1024 * 1024 * 1024,
+      subtitle: 'Maximum performance for large local datasets',
+    });
+  }
+
+  return Array.from(map.values()).sort((a, b) => a.bytes - b.bytes);
+}
+
 export interface DownloadablePack {
   id: string;
   name: string;
@@ -24,7 +181,7 @@ export interface DownloadablePack {
 }
 
 export const DEFAULT_STORAGE_BUDGET_CONFIG: StorageBudgetConfig = {
-  budgetBytes: 15 * 1024 * 1024 * 1024, // 15 GB
+  budgetBytes: calculateDeviceAwareBudget().recommendedBudgetBytes,
   warningThresholdPercent: 85,
   hasCompletedOnboarding: false,
   trimPriority: ['cache', 'chat_history', 'user_file', 'knowledge_pack', 'model'],

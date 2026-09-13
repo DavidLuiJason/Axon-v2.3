@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { X, HardDrive, Check } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { formatBytes } from '../../lib/storageManifest';
+import { formatBytes, getDeviceAwarePresets } from '../../lib/storageManifest';
 import { ModalOverlayContainer } from '../ModalOverlayContainer';
 
 interface BudgetSettingModalProps {
@@ -9,23 +9,19 @@ interface BudgetSettingModalProps {
   onClose: () => void;
 }
 
-const BUDGET_PRESETS = [
-  { label: '5 GB (Minimal)', bytes: 5 * 1024 * 1024 * 1024 },
-  { label: '10 GB (Compact)', bytes: 10 * 1024 * 1024 * 1024 },
-  { label: '15 GB (Recommended)', bytes: 15 * 1024 * 1024 * 1024 },
-  { label: '25 GB (Power User)', bytes: 25 * 1024 * 1024 * 1024 },
-];
-
 export const BudgetSettingModal: React.FC<BudgetSettingModalProps> = ({ isOpen, onClose }) => {
-  const { storageBudget, storageBreakdown, setStorageBudgetBytes, updateStorageBudget } = useApp();
+  const { storageBudget, storageBreakdown, setStorageBudgetBytes, updateStorageBudget, deviceStorageEstimate } = useApp();
   const [threshold, setThreshold] = useState(storageBudget.warningThresholdPercent || 85);
   const [customGb, setCustomGb] = useState('');
 
-  // Keep threshold and custom input synchronized with active state when opened
+  const presets = useMemo(() => getDeviceAwarePresets(deviceStorageEstimate), [deviceStorageEstimate]);
+  const isCustomActive = !presets.some((p) => p.bytes === storageBudget.budgetBytes);
+
+  // Keep threshold and custom input synchronized with active state ONLY when modal opens
   useEffect(() => {
     if (isOpen) {
       setThreshold(storageBudget.warningThresholdPercent || 85);
-      const isPreset = BUDGET_PRESETS.some((p) => p.bytes === storageBudget.budgetBytes);
+      const isPreset = presets.some((p) => p.bytes === storageBudget.budgetBytes);
       if (!isPreset && storageBudget.budgetBytes > 0) {
         const gb = (storageBudget.budgetBytes / (1024 * 1024 * 1024)).toFixed(1).replace(/\.0$/, '');
         setCustomGb(gb);
@@ -36,7 +32,7 @@ export const BudgetSettingModal: React.FC<BudgetSettingModalProps> = ({ isOpen, 
         setCustomGb('');
       }
     }
-  }, [isOpen, storageBudget.budgetBytes, storageBudget.customLimitBytes, storageBudget.warningThresholdPercent]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -65,8 +61,6 @@ export const BudgetSettingModal: React.FC<BudgetSettingModalProps> = ({ isOpen, 
     }
     onClose();
   };
-
-  const isCustomActive = !BUDGET_PRESETS.some((p) => p.bytes === storageBudget.budgetBytes);
 
   return (
     <ModalOverlayContainer
@@ -125,8 +119,11 @@ export const BudgetSettingModal: React.FC<BudgetSettingModalProps> = ({ isOpen, 
             </span>
           )}
         </div>
+        <p className="text-[11px] text-neutral-400">
+          {deviceStorageEstimate.calculationExplanation}
+        </p>
         <div className="grid grid-cols-2 gap-2">
-          {BUDGET_PRESETS.map((preset) => {
+          {presets.map((preset) => {
             const isActive = storageBudget.budgetBytes === preset.bytes;
             return (
               <button
@@ -142,41 +139,51 @@ export const BudgetSettingModal: React.FC<BudgetSettingModalProps> = ({ isOpen, 
                     : 'bg-neutral-800 border-neutral-700 text-neutral-300 hover:bg-neutral-700 hover:text-white'
                 }`}
               >
-                {preset.label}
+                <div>{preset.label}</div>
+                {preset.subtitle && (
+                  <div className={`text-[10px] font-normal truncate mt-0.5 ${isActive ? 'text-neutral-700' : 'text-neutral-400'}`}>
+                    {preset.isRecommended ? 'Device-Aware Recommendation' : preset.subtitle}
+                  </div>
+                )}
               </button>
             );
           })}
         </div>
-      </div>
 
-      {/* Custom Quota Input */}
-      <form onSubmit={handleApplyCustom} className="space-y-1.5">
-        <label className="text-xs font-semibold text-neutral-300">Custom Storage Limit</label>
-        <div className="flex gap-2">
-          <div className="relative flex-1">
-            <input
-              type="number"
-              step="0.5"
-              min="0.5"
-              max="2048"
-              placeholder="e.g. 20"
-              value={customGb}
-              onChange={(e) => setCustomGb(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl bg-neutral-900 border border-neutral-750 text-white text-xs placeholder:text-neutral-500 focus:outline-none focus:border-white pr-10"
-            />
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-neutral-400 font-mono">
-              GB
-            </span>
+        {/* Custom Quota Input alongside presets */}
+        <form onSubmit={handleApplyCustom} className="pt-1 space-y-1.5">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-semibold text-neutral-300">Custom Storage Limit</label>
+            <span className="text-[11px] text-neutral-500">Enter any custom GB value</span>
           </div>
-          <button
-            type="submit"
-            disabled={!customGb || isNaN(parseFloat(customGb))}
-            className="px-3 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 disabled:opacity-50 text-white font-semibold text-xs border border-neutral-700 transition-colors"
-          >
-            Apply
-          </button>
-        </div>
-      </form>
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <input
+                type="number"
+                step="0.5"
+                min="0.5"
+                max="2048"
+                placeholder="e.g. 18"
+                value={customGb}
+                onChange={(e) => setCustomGb(e.target.value)}
+                className={`w-full px-3 py-2 rounded-xl bg-neutral-900 border text-white text-xs placeholder:text-neutral-500 focus:outline-none focus:border-white pr-10 ${
+                  isCustomActive ? 'border-white font-medium' : 'border-neutral-750'
+                }`}
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-neutral-400 font-mono">
+                GB
+              </span>
+            </div>
+            <button
+              type="submit"
+              disabled={!customGb || isNaN(parseFloat(customGb)) || parseFloat(customGb) <= 0}
+              className="px-3.5 py-2 rounded-xl bg-white text-black hover:bg-neutral-200 disabled:bg-neutral-800 disabled:text-neutral-500 disabled:border-neutral-700 font-semibold text-xs border border-neutral-700 transition-colors"
+            >
+              Apply
+            </button>
+          </div>
+        </form>
+      </div>
 
       <div className="space-y-2 pt-2 border-t border-neutral-800">
         <div className="flex justify-between text-xs">
